@@ -1,0 +1,510 @@
+\documentclass[a4paper]{article}
+\usepackage{fullpage}
+\usepackage{pdflscape}
+\usepackage{longtable}
+\usepackage{minted}
+
+\begin{document}
+
+<<include=FALSE>>=
+library(knitr)
+opts_chunk$set(
+concordance=TRUE
+)
+@
+
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+%\renewenvironment{Sinput}{\minted{r}}{\endminted}
+\DefineVerbatimEnvironment{Soutput}{Verbatim}{}
+\DefineVerbatimEnvironment{Scode}{Verbatim}{}
+
+\begin{small}
+
+\section{Libraries and definitions}
+
+<<>>=
+library(ggplot2)
+library(dplyr)
+library(ggthemes)
+library(xtable)
+library(Hmisc)
+
+# get the mode of kde of x
+density_mode = function(x)
+{
+  den = density(x, bw='SJ')
+  den$x[which.max(den$y)]
+}
+@
+
+
+\section{Preparing data}
+
+We begin by loading the coordinates from the CSV file and calculating some summaries, first for all data grouped by cell type and condition, then for individual samples. We filter out all spot pairs with a 2d distance of $>$ 300 nm immediately.
+
+<<>>=
+
+
+# read the data
+dta = read.csv('~/Desktop/combined_analysis2017-08-14-16-15.csv', header=T)
+#dta = read.csv(file.choose(), header=T)
+# filter by distance right away
+dta = filter(dta, len2d < .4)
+
+
+# Median lengths and sample sizes
+summary_all = summarise(group_by(dta, interaction(X.experiment.cell_type, X.experiment.condition),
+                                 interaction(X.experiment.targets.0, X.experiment.targets.1)),  
+          median = median(len2d*1000), mode = density_mode(len2d*1000), mean = mean(len2d*1000),
+          mean3destim =  mean(len2d*1000) / (pi/4), normmedian = median(len2d*1000 / equivalent_diameter, na.rm = T)) %>% as.data.frame()
+
+summary_samplesize = summarise(group_by(dta, interaction(X.experiment.cell_type, X.experiment.condition),
+                                        interaction(X.experiment.targets.0, X.experiment.targets.1, X.preparation.location)), 
+          samplesize = length(file), nreplicates = length(unique(interaction(slide_group_id, slide_id))))
+
+
+# once again, but this time split into individual slides
+summary_individual = summarise(group_by(dta, interaction(X.experiment.cell_type,
+      X.experiment.condition, slide_group_id, slide_id), interaction(X.experiment.targets.0, X.experiment.targets.1)),  
+      median = median(len2d*1000), mode = density_mode(len2d*1000),
+      mean = mean(len2d*1000), mean3destim =  mean(len2d*1000) / (pi/4),
+      normmedian = median(len2d*1000 / equivalent_diameter, na.rm = T)) %>% 
+        as.data.frame
+# individual spots per sample
+samplesize_individual = summarise(group_by(dta, interaction(X.experiment.cell_type,
+X.experiment.condition, slide_group_id, slide_id), interaction(X.experiment.targets.0, X.experiment.targets.1)), 
+          nr_spots = length(file)) %>% as.data.frame
+
+
+@
+
+\begin{landscape}
+
+\begin{footnotesize}
+<<results='asis'>>=
+print(xtable(summary_all, caption = 'Summary of all results',auto = T  ), include.rownames=TRUE, tabular.environment="longtable", floating=FALSE)
+print(xtable(summary_samplesize, caption = 'Sample sizes' , auto = T), include.rownames=TRUE, tabular.environment="longtable", floating=FALSE)
+print(xtable(summary_individual, caption = 'Summary of individual samples', auto = T ), include.rownames=TRUE, tabular.environment="longtable", floating=FALSE)
+print(xtable(samplesize_individual, caption = 'Sample sizes (individual)' ), include.rownames=TRUE, tabular.environment="longtable", floating=FALSE)
+
+@
+\end{footnotesize}
+\end{landscape}
+
+
+\section{Some comparisons}
+
+\subsection{Overall}
+
+
+<<>>=
+ggplot(dta) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition, X.preparation.location))) +
+  ggtitle('2D distances between FISH spots, also grouped by location') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta) + geom_boxplot(notch = T, aes(y=len2d / equivalent_diameter, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition, X.preparation.location))) +
+  ggtitle('2D distances between FISH spots, also grouped by location, also distance_normalized') + 
+  ylab('normalized distance') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+@
+
+\paragraph{Observations}
+
+\begin{itemize} 
+\item Distances between HS2-HBG2 $>$ HS1-HS4 $>$ HS2-HS4 (note small sample size here) $>$
+HS2-HS3.
+\item It seems the location of preparation (Munich or Seattle) has quite some influence on the measured distances.
+\item When normalizing to cell size, the (practically nonexistant) difference is HS1-HS4 distance becomes larger (obviously, since cell size differs.)
+\item K562 $\Delta$LCR seem to have reduced HS2-HBG2 (note small sample size though) and HS1-HS4 (more samples, pronounced difference) distance.
+
+\end{itemize}
+
+\subsection{Equivalent circle diameter (distance normalization)}
+
+<<>>=
+
+ggplot(dta) + geom_boxplot(notch = T, aes(y=equivalent_diameter, 
+                x= interaction( X.experiment.cell_type,  X.experiment.condition, lex.order = T),
+    fill= interaction( X.experiment.cell_type,  X.experiment.condition, lex.order = T))) +
+  ggtitle('equivalent diameter of cell area') + 
+  ylab('equivalent diameter (um)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta) + geom_boxplot(notch = T, aes(y=equivalent_diameter, 
+                x= interaction( X.experiment.cell_type,  X.experiment.condition, lex.order = T),
+    fill= interaction( X.experiment.cell_type,  X.experiment.condition, X.preparation.location, lex.order = T))) +
+  ggtitle('equivalent diameter of cell area (also looking at where sample was prepared)') + 
+  ylab('equivalent diameter (um)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+@
+
+\paragraph{Observations}
+
+\begin{itemize}
+\item In the samples that were prepared at both locations, we see slightly bigger cells coming from Seattle.
+\item TSA treatment and deletions seem to adversely effect cell size.
+\end{itemize}
+
+\subsection{Are length and cell size correlated?}
+
+<<>>=
+ggplot(dta) + geom_point(aes(x=len2d, y=equivalent_diameter)) + facet_wrap(~ interaction(X.experiment.targets.0, X.experiment.targets.1))
+
+for( fct in unique(interaction(dta$X.experiment.targets.0,dta$X.experiment.targets.1)))
+{
+ dta_filtered = filter(dta, interaction(X.experiment.targets.0,X.experiment.targets.1) == fct)
+ 
+ print(fct)
+print(rcorr(dta_filtered$len2d, (dta_filtered$equivalent_diameter), type = 'spearman'))
+ 
+}
+
+
+@
+
+\paragraph{Observations}
+
+\begin{itemize}
+\item No obvious correlation between distance and cell size.
+\item Only in the HS2-HS3 and HS1-HS4 samples, we see a $\tau$ significantly different from 0. The positive correlation is still very small.
+\end{itemize}
+
+\subsection{Detailed}
+
+<<fig.keep='all'>>=
+for( fct in unique(interaction(dta$X.experiment.targets.0,dta$X.experiment.targets.1)))
+{
+ dta_filtered = filter(dta, interaction(X.experiment.targets.0,X.experiment.targets.1) == fct)
+
+plt = ggplot(dta_filtered) + geom_boxplot(notch = T, aes(y=len2d* 1000, 
+                x=interaction(X.experiment.cell_type, 
+  X.experiment.condition, lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+ylim(c(0,300)) + ggtitle(paste('2D distances between FISH spots (', fct, ')')) + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+print(plt)
+
+plt2 = ggplot(dta_filtered) + geom_boxplot(notch = T, aes(y=len2d/equivalent_diameter, 
+                x=interaction(X.experiment.cell_type, 
+  X.experiment.condition, lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle(paste('2D distances between FISH spots, normalized (', fct, ')')) + 
+  ylab('normalized distance') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+print(plt2)
+
+print(pairwise.wilcox.test(dta_filtered$len2d, 
+                           interaction(dta_filtered$X.experiment.cell_type, 
+                                       dta_filtered$X.experiment.condition)))
+print(pairwise.wilcox.test(dta_filtered$len2d / dta_filtered$equivalent_diameter,
+                           interaction(dta_filtered$X.experiment.cell_type,
+                                       dta_filtered$X.experiment.condition)))
+
+}
+
+
+@
+
+
+\paragraph{Observations}
+
+\begin{itemize}
+
+\item The significant difference between the HS2 and HBG2 distances in K562wt and GMwt persists.
+\item We do not see significant differences when comparing wt or ctrl cells to $\Delta$HS2 or TSA-treated cells
+\item The difference between HS2 and HS3 is no longer significant now (it was before, but due to more pairwise tests and correction, significance is gone)
+\item Distance normalization makes differences in the HS2-HBG2 case more pronounced, and brings back significance in the HS2-HS3 comparison. However, when doing the distance normalization, the differences in HS1-Hs4 becomes highly significant.
+\item HS1-H4 distance is significantly reduced in $\Delta$-LCR cells, both normalized and unnormalized.
+\item The distance between HS1 and HBG2 seems to shrink in  $\Delta$HS2-cell. However, this is based on only one slide and the difference is not statistically significant. 
+
+\end{itemize}
+
+\subsection{Only pairs with exactly the comparison we want: HS2 deletion mutants}
+
+<<>>=
+dta.for.comparison = group_by(dta, interaction(slide_group_id, slide_id)) %>% filter(interaction(X.experiment.targets.0, X.experiment.targets.1) == 'hs2.hbg2')
+dta.for.comparison = filter(dta.for.comparison, ('k562' %in%  X.experiment.cell_type) && ( ('k562_d_hs2' %in%  X.experiment.cell_type)))
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1)),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d / equivalent_diameter, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1)),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots, normalized') + 
+  ylab('normalized distance') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots, per sample') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+@
+\paragraph{Observations}
+
+\begin{itemize}
+
+\item We see no difference, also when distance normalized, and no trend when looking at it sample-per-sample.
+
+\end{itemize}
+
+
+\subsection{Kathi vs. Tobias}
+
+<<>>=
+dta.for.comparison = group_by(dta, interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1))
+dta.for.comparison = filter(dta.for.comparison, ('kathi' %in%  X.preparation.preparator) && ( ('tobias' %in%  X.preparation.preparator)))
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, X.preparation.preparator)),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition, X.preparation.preparator))) +
+  ggtitle('2D distances between FISH spots') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d / equivalent_diameter, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, X.preparation.preparator)),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition, X.preparation.preparator))) +
+  ggtitle('2D distances between FISH spots, normalized') + 
+  ylab('normalized distance') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id, X.preparation.preparator), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition, X.preparation.preparator, X.experiment.targets.0, X.experiment.targets.1))) +
+  ggtitle('2D distances between FISH spots, per sample') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+@
+
+\paragraph{Observations}
+
+Small sample size for Kathi makes it hard to compore the two preparators. Kathis samples fall within the variance also seen in Tobias' samples of the same targets \& cell types.
+
+
+\subsection{Just $\Delta$ LCR samples}
+
+<<>>=
+dta.for.comparison = group_by(dta, interaction(slide_group_id, slide_id)) 
+dta.for.comparison = filter(dta.for.comparison, ('k562' %in%  X.experiment.cell_type) && ( 'k562_d_2x_LCR' %in%  X.experiment.cell_type))
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1)),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d / equivalent_diameter, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1)),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots, normalized') + 
+  ylab('normalized distance') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots, per sample') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+@
+
+\paragraph{Observations}
+
+\begin{itemize}
+
+\item $\Delta$-LCR seems to decrease HS1-HS4 distance and increase HS2-HS3 distance. This is consinstent across all samples.
+\item For HS2-HBG2 we only have one sample with just a few spots. The distance seems to decrease slightly in the mutant.
+
+\end{itemize}
+
+
+\subsection{HS2 - HBG2 per sample}
+
+<<>>=
+dta.for.comparison = group_by(dta, interaction(slide_group_id, slide_id)) %>% filter(interaction(X.experiment.targets.0, X.experiment.targets.1) == 'hs2.hbg2')
+#dta.for.comparison = filter(dta.for.comparison, ('k562' %in%  X.experiment.cell_type) && ( ('k562_d_hs2' %in%  X.experiment.cell_type)))
+
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d * 1e3, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots,per sample') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d/equivalent_diameter, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots, per sample,') + 
+  ylab('distance / equivalent diameter') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+@
+
+
+\paragraph{Observations}
+
+\begin{itemize}
+
+\item Except for two slides (one if we normalize by equivalent diameter of cell), the trend that the HS2-HBG2 distance is bigger in GMs than K562s holds.
+\item The remaining outlier comes from \begin{verbatim}8_shipment_20170130.mixed_HS2_HBG2\end{verbatim}, which has $<20$ spot pairs for each cell type and thus still a very high variance.
+\item Even with distance normalization, we see no clear trend when comparing WT K562 to $\Delta$HS2 mutants.
+
+\end{itemize}
+
+
+
+
+\subsection{TSA treatment (just one sample))}
+<<>>=
+dta.for.comparison = group_by(dta, interaction(slide_group_id, slide_id)) %>% filter(interaction(X.experiment.targets.0, X.experiment.targets.1) == 'hs2.hbg2')
+dta.for.comparison = filter(dta.for.comparison, ('ctrl' %in%  X.experiment.condition) && ( ('tsa100' %in%  X.experiment.condition)))
+
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+
+ggplot(dta.for.comparison) + geom_boxplot(notch = T, aes(y=len2d/equivalent_diameter, 
+                x=interaction(interaction(X.experiment.cell_type, 
+  X.experiment.condition, X.experiment.targets.0, X.experiment.targets.1, slide_group_id, slide_id), lex.order = T),
+    fill= interaction(X.experiment.cell_type, X.experiment.condition))) +
+  ggtitle('2D distances between FISH spots, per sample') + 
+  ylab('distance (nm)') +
+  xlab('condition') +
+  theme_minimal() + scale_fill_brewer(palette="Accent") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill='cell/condition')
+
+print(pairwise.wilcox.test(dta.for.comparison$len2d, interaction(dta.for.comparison$X.experiment.cell_type, dta.for.comparison$X.experiment.condition)))
+
+@
+
+\paragraph{Observations}
+
+\begin{itemize}
+
+\item TSA seems to decrease distance slightly, but not significantly. Note that we only have one sample here.
+\item Difference might also just be due to different sizes.
+
+\end{itemize}
+
+\end{small}
+
+\end{document}
